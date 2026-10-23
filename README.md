@@ -27,7 +27,7 @@
 
 ## システム構成
 
-本番は 1 つの Spring Boot が API とビルド済みの React を同じオリジンで配信します。データベースは PostgreSQL です。
+本番は 1 つの Spring Boot が API とビルド済みの React を同じオリジンで配信します。ホスティングは Render の無料プランで、データベースは Render の無料 PostgreSQL です。
 
 ```text
 ブラウザ
@@ -176,19 +176,27 @@ mvn test
 
 ## デプロイ
 
-公開 URL はまだありません。Render では Dockerfile から Web Service を作り、PostgreSQL を別サービスとして接続します。データベースはアプリの再起動では消えません。
+本番は Render の無料プランに公開しています。`render.yaml` の Web Service と PostgreSQL はどちらも `plan: free` です。Web Service はリポジトリの `Dockerfile` からビルドし、画面と API を同じオリジンで配信します。公開アドレスは、Render ダッシュボードの Web Service に表示される `onrender.com` の URL です。
+
+無料プランでは次の制限があります。
+
+- Web Service は 0.1 CPU、512 MB です。15 分間アクセスがないと休止し、次のアクセスで復帰するまで約 1 分かかります。休止中は月 750 時間の無料インスタンス時間を消費しません。
+- ログインセッションはメモリ上にあります。休止や再起動でログアウト状態に戻ります。フレーズと復習履歴は PostgreSQL に残ります。
+- 無料の PostgreSQL は保存容量 1 GB で、ワークスペースに 1 つまでです。バックアップはありません。作成から 30 日で期限が切れ、その後 14 日の猶予を過ぎるとデータごと削除されます。面接用の短期間公開を想定しています。
 
 環境変数:
 
 | 名前 | 値 |
 | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | `prod` |
-| `DATABASE_URL` | Render の `postgres://` 接続文字列。起動時に JDBC URL へ変換する |
+| `DATABASE_URL` | Render の `postgres://` 接続文字列。Blueprint が PostgreSQL から渡し、起動時に JDBC URL へ変換する |
 | `SPRING_DATASOURCE_URL` | これを指定した場合は `DATABASE_URL` より優先する |
 | `PORT` | Render が割り当てるポート |
 | `APP_TIMEZONE` | 未指定時は `Asia/Tokyo` |
 
 ヘルスチェックパスは `/actuator/health` です。本番プロファイルではセッション Cookie を Secure にし、`X-Forwarded-Proto` を信頼します。CORS は開きません。
+
+ローカルで本番イメージを確認する場合:
 
 ```bash
 docker build -t phraseloop .
@@ -199,8 +207,6 @@ docker run --rm -p 8080:8080 \
   -e SPRING_DATASOURCE_PASSWORD=secret \
   phraseloop
 ```
-
-`render.yaml` は Web Service と PostgreSQL の起点です。プラン名は Render 側の表示に合わせて選んでください。
 
 ## 工夫した点
 
@@ -217,4 +223,3 @@ docker run --rm -p 8080:8080 \
 - カレンダーで過去の月を表示する
 - フレーズ一覧のページング
 - パスワード再設定
-- 本番 URL の公開

@@ -2,6 +2,7 @@ services:
   - type: web
     name: phraseloop
     runtime: docker
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /actuator/health
     envVars:
@@ -18,4 +19,4 @@ databases:
   - name: phraseloop-db
     databaseName: phraseloop
     user: phraseloop
-    plan: basic-256mb
+    plan: free
