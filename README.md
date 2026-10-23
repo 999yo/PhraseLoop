@@ -209,8 +209,10 @@ mvn test
 | 名前 | 値 |
 | --- | --- |
 | `SPRING_PROFILES_ACTIVE` | `prod` |
-| `DATABASE_URL` | Render の `postgres://` 接続文字列。Blueprint が PostgreSQL から渡し、起動時に JDBC URL へ変換する |
-| `SPRING_DATASOURCE_URL` | これを指定した場合は `DATABASE_URL` より優先する |
+| `SPRING_DATASOURCE_URL` | Render PostgreSQL の JDBC URL。`render.yaml` が設定する |
+| `SPRING_DATASOURCE_USERNAME` | Blueprint がデータベースのユーザー名を渡す |
+| `SPRING_DATASOURCE_PASSWORD` | Blueprint がデータベースのパスワードを渡す |
+| `DATABASE_URL` | `postgres://` 接続文字列。`SPRING_DATASOURCE_URL` が無いとき、起動時に JDBC URL へ変換する |
 | `PORT` | Render が割り当てるポート |
 | `APP_TIMEZONE` | 未指定時は `Asia/Tokyo` |
 
