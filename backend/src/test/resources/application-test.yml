@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: ${TEST_DATASOURCE_URL:jdbc:postgresql://localhost:5432/phraseloop_test}
+    username: ${TEST_DATASOURCE_USERNAME:phraseloop}
+    password: ${TEST_DATASOURCE_PASSWORD:phraseloop}

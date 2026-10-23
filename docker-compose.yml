@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: phraseloop
+      POSTGRES_PASSWORD: phraseloop
+      POSTGRES_DB: phraseloop
+    ports:
+      - "5432:5432"
+    volumes:
+      - phraseloop-data:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql
+
+volumes:
+  phraseloop-data:

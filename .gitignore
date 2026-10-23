@@ -1,0 +1,13 @@
+.idea/
+.vscode/
+*.iml
+.DS_Store
+backend/target/
+backend/src/main/resources/static/*
+!backend/src/main/resources/static/.gitkeep
+frontend/node_modules/
+frontend/dist/
+*.log
+.env
+.env.*
+!*.env.example
