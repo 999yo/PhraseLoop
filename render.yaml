@@ -10,10 +10,16 @@ services:
         value: prod
       - key: APP_TIMEZONE
         value: Asia/Tokyo
-      - key: DATABASE_URL
+      - key: SPRING_DATASOURCE_URL
+        value: jdbc:postgresql://dpg-dbdgir4s728c73bst8b0-a:5432/phraseloop
+      - key: SPRING_DATASOURCE_USERNAME
         fromDatabase:
           name: phraseloop-db
-          property: connectionString
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: phraseloop-db
+          property: password
 
 databases:
   - name: phraseloop-db
