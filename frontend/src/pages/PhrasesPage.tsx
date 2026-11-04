@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../api/client";
 import { FormField } from "../components/FormField";
-import type { Phrase, PhraseInput } from "../types";
+import type { Phrase, PhraseCategory, PhraseImportResult, PhraseInput } from "../types";
 
 const emptyForm: PhraseInput = {
   englishText: "",
@@ -26,9 +26,15 @@ function validate(form: PhraseInput): Record<string, string> {
   return fields;
 }
 
+function categoryLabel(name: string | null): string {
+  return name ?? "未分類";
+}
+
 export function PhrasesPage() {
   const [phrases, setPhrases] = useState<Phrase[] | null>(null);
+  const [categories, setCategories] = useState<PhraseCategory[]>([]);
   const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [form, setForm] = useState<PhraseInput>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -37,12 +43,26 @@ export function PhrasesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvInputKey, setCsvInputKey] = useState(0);
+  const [preview, setPreview] = useState<PhraseImportResult | null>(null);
+  const [csvMessage, setCsvMessage] = useState("");
+  const [csvFailed, setCsvFailed] = useState(false);
+  const [csvBusy, setCsvBusy] = useState(false);
 
-  async function load(search = query) {
+  async function loadCategories() {
+    setCategories(await api<PhraseCategory[]>("/api/phrases/categories"));
+  }
+
+  async function load(search = query, filter = categoryFilter) {
     setLoading(true);
     setLoadError("");
     try {
-      const path = search.trim() ? `/api/phrases?q=${encodeURIComponent(search.trim())}` : "/api/phrases";
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("q", search.trim());
+      if (filter === "uncategorized") params.set("uncategorized", "true");
+      else if (filter !== "all") params.set("category", filter);
+      const path = params.size > 0 ? `/api/phrases?${params.toString()}` : "/api/phrases";
       setPhrases(await api<Phrase[]>(path));
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : "通信に失敗しました");
@@ -52,7 +72,8 @@ export function PhrasesPage() {
   }
 
   useEffect(() => {
-    void load("");
+    void load("", "all");
+    void loadCategories().catch(() => setLoadError("カテゴリを読み込めませんでした"));
   }, []);
 
   function updateField(key: keyof PhraseInput, value: string) {
@@ -97,6 +118,7 @@ export function PhrasesPage() {
         setForm(emptyForm);
       }
       await load();
+      await loadCategories();
     } catch (error) {
       if (error instanceof ApiError) {
         setFields(error.fields);
@@ -116,10 +138,60 @@ export function PhrasesPage() {
       if (editingId === id) cancelEdit();
       setConfirmingId(null);
       await load();
+      await loadCategories();
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : "通信に失敗しました");
     }
   }
+
+  async function previewCsv() {
+    if (!csvFile) {
+      setCsvFailed(true);
+      setCsvMessage("ファイルを選んでください");
+      setPreview(null);
+      return;
+    }
+    setCsvBusy(true);
+    setCsvFailed(false);
+    setCsvMessage("");
+    const body = new FormData();
+    body.append("file", csvFile);
+    try {
+      setPreview(await api<PhraseImportResult>("/api/phrases/import/preview", { method: "POST", body }));
+    } catch (error) {
+      setCsvFailed(true);
+      setPreview(null);
+      setCsvMessage(error instanceof ApiError ? error.message : "通信に失敗しました");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  async function importCsv() {
+    if (!csvFile) return;
+    setCsvBusy(true);
+    setCsvFailed(false);
+    setCsvMessage("");
+    const body = new FormData();
+    body.append("file", csvFile);
+    try {
+      const result = await api<PhraseImportResult>("/api/phrases/import", { method: "POST", body });
+      setPreview(null);
+      setCsvFile(null);
+      setCsvInputKey((current) => current + 1);
+      setCsvFailed(false);
+      setCsvMessage(`${result.savedCount}件登録しました`);
+      await load();
+      await loadCategories();
+    } catch (error) {
+      setCsvFailed(true);
+      setCsvMessage(error instanceof ApiError ? error.message : "通信に失敗しました");
+    } finally {
+      setCsvBusy(false);
+    }
+  }
+
+  const previewHasError = preview?.rows.some((row) => row.error) ?? false;
 
   return (
     <section className="page phrase-layout">
@@ -143,6 +215,27 @@ export function PhrasesPage() {
             検索
           </button>
         </form>
+        <div className="filters">
+          <label>
+            カテゴリ
+            <select
+              aria-label="カテゴリ"
+              value={categoryFilter}
+              onChange={(event) => {
+                const next = event.target.value;
+                setCategoryFilter(next);
+                void load(query, next);
+              }}
+            >
+              <option value="all">すべて</option>
+              {categories.map((item) => (
+                <option key={item.name ?? "uncategorized"} value={item.name ?? "uncategorized"}>
+                  {categoryLabel(item.name)}（{item.phraseCount}）
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {loading ? <p className="status-line">読み込んでいます</p> : null}
         {loadError ? (
           <p className="form-message" role="alert">
@@ -185,40 +278,100 @@ export function PhrasesPage() {
         </div>
       </div>
 
-      <form className="phrase-form" onSubmit={onSubmit}>
-        <h2>{editingId === null ? "新しいフレーズ" : "フレーズを編集"}</h2>
-        <FormField label="英語フレーズ" error={fields.englishText}>
-          <textarea value={form.englishText} onChange={(event) => updateField("englishText", event.target.value)} rows={3} />
-        </FormField>
-        <FormField label="日本語訳" error={fields.japaneseText}>
-          <textarea value={form.japaneseText} onChange={(event) => updateField("japaneseText", event.target.value)} rows={3} />
-        </FormField>
-        <FormField label="例文（任意）" error={fields.exampleSentence}>
-          <textarea
-            value={form.exampleSentence}
-            onChange={(event) => updateField("exampleSentence", event.target.value)}
-            rows={3}
-          />
-        </FormField>
-        <FormField label="カテゴリ（任意）" error={fields.category}>
-          <input value={form.category} onChange={(event) => updateField("category", event.target.value)} />
-        </FormField>
-        {message ? (
-          <p className="form-message" role="alert">
-            {message}
-          </p>
-        ) : null}
-        <div className="row-actions">
-          <button className="primary" type="submit" disabled={saving}>
-            {saving ? "保存しています" : editingId === null ? "登録する" : "更新する"}
-          </button>
-          {editingId !== null ? (
-            <button type="button" className="secondary" onClick={cancelEdit}>
-              キャンセル
-            </button>
+      <div>
+        <form className="phrase-form" onSubmit={onSubmit}>
+          <h2>{editingId === null ? "新しいフレーズ" : "フレーズを編集"}</h2>
+          <FormField label="英語フレーズ" error={fields.englishText}>
+            <textarea value={form.englishText} onChange={(event) => updateField("englishText", event.target.value)} rows={3} />
+          </FormField>
+          <FormField label="日本語訳" error={fields.japaneseText}>
+            <textarea value={form.japaneseText} onChange={(event) => updateField("japaneseText", event.target.value)} rows={3} />
+          </FormField>
+          <FormField label="例文（任意）" error={fields.exampleSentence}>
+            <textarea
+              value={form.exampleSentence}
+              onChange={(event) => updateField("exampleSentence", event.target.value)}
+              rows={3}
+            />
+          </FormField>
+          <FormField label="カテゴリ（任意）" error={fields.category}>
+            <input value={form.category} onChange={(event) => updateField("category", event.target.value)} />
+          </FormField>
+          {message ? (
+            <p className="form-message" role="alert">
+              {message}
+            </p>
           ) : null}
+          <div className="row-actions">
+            <button className="primary" type="submit" disabled={saving}>
+              {saving ? "保存しています" : editingId === null ? "登録する" : "更新する"}
+            </button>
+            {editingId !== null ? (
+              <button type="button" className="secondary" onClick={cancelEdit}>
+                キャンセル
+              </button>
+            ) : null}
+          </div>
+        </form>
+
+        <div className="import-block">
+            <h2>CSVでまとめて登録</h2>
+            <p className="import-note">ヘッダーは japanese, english, category です。</p>
+            <input
+              key={csvInputKey}
+              type="file"
+              accept=".csv,text/csv"
+              aria-label="CSVファイル"
+              onChange={(event) => {
+                setCsvFile(event.target.files?.[0] ?? null);
+                setPreview(null);
+                setCsvFailed(false);
+                setCsvMessage("");
+              }}
+            />
+            <div className="row-actions">
+              <button type="button" className="secondary" disabled={csvBusy} onClick={() => void previewCsv()}>
+                プレビュー
+              </button>
+            </div>
+            {csvMessage ? (
+              <p className={csvFailed ? "form-message" : "import-note"} role={csvFailed ? "alert" : "status"}>
+                {csvMessage}
+              </p>
+            ) : null}
+            {preview ? (
+              <>
+                <p className="import-note">プレビュー {preview.rows.length}件</p>
+                <table className="preview-table">
+                  <thead>
+                    <tr>
+                      <th>日本語</th>
+                      <th>英語</th>
+                      <th>カテゴリ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={row.line}>
+                        <td>{row.japanese || "（空欄）"}</td>
+                        <td>{row.english || "（空欄）"}</td>
+                        <td>
+                          {row.category || "未分類"}
+                          {row.error ? <div className="row-error">{row.line}行目: {row.error}</div> : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {previewHasError ? null : (
+                  <button type="button" className="primary" disabled={csvBusy} onClick={() => void importCsv()}>
+                    この内容で登録
+                  </button>
+                )}
+              </>
+            ) : null}
         </div>
-      </form>
+      </div>
     </section>
   );
 }

@@ -37,3 +37,21 @@ export type PhraseInput = {
   exampleSentence: string;
   category: string;
 };
+
+export type PhraseCategory = {
+  name: string | null;
+  phraseCount: number;
+};
+
+export type PhraseImportRow = {
+  line: number;
+  japanese: string;
+  english: string;
+  category: string;
+  error: string | null;
+};
+
+export type PhraseImportResult = {
+  rows: PhraseImportRow[];
+  savedCount: number;
+};

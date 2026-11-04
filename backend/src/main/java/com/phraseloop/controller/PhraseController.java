@@ -1,5 +1,6 @@
 package com.phraseloop.controller;
 
+import com.phraseloop.dto.PhraseCategoryCount;
 import com.phraseloop.dto.PhraseRequest;
 import com.phraseloop.dto.PhraseResponse;
 import com.phraseloop.security.CurrentUser;
@@ -31,8 +32,16 @@ public class PhraseController {
     }
 
     @GetMapping
-    public List<PhraseResponse> list(@RequestParam(name = "q", required = false) String query) {
-        return phraseService.list(currentUser.require().getId(), query);
+    public List<PhraseResponse> list(
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "category", required = false) String category,
+            @RequestParam(name = "uncategorized", defaultValue = "false") boolean uncategorized) {
+        return phraseService.list(currentUser.require().getId(), query, category, uncategorized);
+    }
+
+    @GetMapping("/categories")
+    public List<PhraseCategoryCount> categories() {
+        return phraseService.categories(currentUser.require().getId());
     }
 
     @GetMapping("/{id}")

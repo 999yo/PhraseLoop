@@ -1,27 +1,37 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../api/client";
-import type { Phrase } from "../types";
+import type { Phrase, PhraseCategory } from "../types";
 
 type Phase = "answer" | "revealed";
+type QuestionCount = 10 | 20 | 30 | "all";
+
+const COUNTS: QuestionCount[] = [10, 20, 30, "all"];
+
+function categoryKey(name: string | null): string {
+  return name ?? "";
+}
 
 export function ReviewPage() {
+  const [categories, setCategories] = useState<PhraseCategory[] | null>(null);
+  const [allCategories, setAllCategories] = useState(true);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [questionCount, setQuestionCount] = useState<QuestionCount>(10);
   const [phrases, setPhrases] = useState<Phrase[] | null>(null);
   const [index, setIndex] = useState(0);
   const [done, setDone] = useState(false);
   const [phase, setPhase] = useState<Phase>("answer");
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let active = true;
-    api<Phrase[]>("/api/reviews/today")
+    api<PhraseCategory[]>("/api/phrases/categories")
       .then((data) => {
-        if (!active) return;
-        setPhrases(data);
-        setDone(data.length === 0);
+        if (active) setCategories(data);
       })
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof ApiError ? reason.message : "通信に失敗しました");
@@ -33,6 +43,53 @@ export function ReviewPage() {
       active = false;
     };
   }, []);
+
+  const totalCount = categories?.reduce((sum, item) => sum + item.phraseCount, 0) ?? 0;
+  const selectedCount = allCategories
+    ? totalCount
+    : (categories ?? [])
+        .filter((item) => selected.includes(categoryKey(item.name)))
+        .reduce((sum, item) => sum + item.phraseCount, 0);
+  const questionTotal = questionCount === "all" ? selectedCount : Math.min(questionCount, selectedCount);
+
+  function toggleAll() {
+    setAllCategories(true);
+    setSelected([]);
+  }
+
+  function toggleCategory(key: string) {
+    setSelected((current) => {
+      const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
+      setAllCategories(next.length === 0);
+      return next;
+    });
+  }
+
+  async function startReview() {
+    setStarting(true);
+    setError("");
+    const named = selected.filter((key) => key !== "");
+    try {
+      const result = await api<Phrase[]>("/api/reviews/session", {
+        method: "POST",
+        body: JSON.stringify({
+          all: allCategories,
+          categories: named,
+          includeUncategorized: !allCategories && selected.includes(""),
+          questionCount: questionCount === "all" ? null : questionCount,
+        }),
+      });
+      setPhrases(result);
+      setIndex(0);
+      setDraft("");
+      setPhase("answer");
+      setDone(result.length === 0);
+    } catch (reason) {
+      setError(reason instanceof ApiError ? reason.message : "通信に失敗しました");
+    } finally {
+      setStarting(false);
+    }
+  }
 
   async function grade(remembered: boolean) {
     if (!phrases) return;
@@ -59,7 +116,7 @@ export function ReviewPage() {
   }
 
   if (loading) return <p className="status-line">読み込んでいます</p>;
-  if (error && !phrases) {
+  if (error && !categories && !phrases) {
     return (
       <div className="status-block">
         <p role="alert">{error}</p>
@@ -69,19 +126,73 @@ export function ReviewPage() {
       </div>
     );
   }
-  if (!phrases || phrases.length === 0) {
+  if (!phrases) {
+    return (
+      <section className="review-setup">
+        <h1>復習の設定</h1>
+        <h2>出題するカテゴリ</h2>
+        <ul className="choice-list">
+          <li>
+            <label>
+              <input type="checkbox" checked={allCategories} onChange={toggleAll} />
+              すべて
+              <span className="choice-count">{totalCount}問</span>
+            </label>
+          </li>
+          {categories?.map((item) => {
+            const key = categoryKey(item.name);
+            return (
+              <li key={key || "uncategorized"}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={!allCategories && selected.includes(key)}
+                    onChange={() => toggleCategory(key)}
+                  />
+                  {item.name ?? "未分類"}
+                  <span className="choice-count">{item.phraseCount}問</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        <h2>出題数</h2>
+        <ul className="choice-list">
+          {COUNTS.map((count) => (
+            <li key={String(count)}>
+              <label>
+                <input
+                  type="radio"
+                  name="question-count"
+                  checked={questionCount === count}
+                  onChange={() => setQuestionCount(count)}
+                />
+                {count === "all" ? "全問" : `${count}問`}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <p className="import-note">
+          {questionTotal === 0 ? "この条件のフレーズはありません。" : `この条件では ${questionTotal}問出題します`}
+        </p>
+        {error ? (
+          <p className="form-message" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button type="button" className="primary" disabled={starting || questionTotal === 0} onClick={() => void startReview()}>
+          復習を始める
+        </button>
+      </section>
+    );
+  }
+  if (phrases.length === 0 || (done && phrases.length === 0)) {
     return (
       <div className="status-block">
-        <h1>今日の復習はありません。</h1>
-        <p>次回復習日が来ると、ここに表示されます。</p>
-        <div className="row-actions">
-          <Link className="primary button-link" to="/phrases">
-            フレーズを登録
-          </Link>
-          <Link className="secondary button-link" to="/">
-            ダッシュボードへ
-          </Link>
-        </div>
+        <h1>この条件のフレーズはありません。</h1>
+        <button type="button" className="primary" onClick={() => setPhrases(null)}>
+          設定に戻る
+        </button>
       </div>
     );
   }

@@ -25,7 +25,8 @@ export async function ensureCsrf(): Promise<void> {
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body && !headers.has("Content-Type")) {
+  const formData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (options.body && !formData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const csrf = readCookie("XSRF-TOKEN");

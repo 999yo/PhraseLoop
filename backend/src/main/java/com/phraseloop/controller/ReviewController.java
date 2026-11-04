@@ -4,6 +4,7 @@ import com.phraseloop.dto.PhraseResponse;
 import com.phraseloop.dto.ReviewAnswerRequest;
 import com.phraseloop.dto.ReviewAnswerResponse;
 import com.phraseloop.dto.ReviewHistoryResponse;
+import com.phraseloop.dto.ReviewSessionRequest;
 import com.phraseloop.security.CurrentUser;
 import com.phraseloop.service.ReviewService;
 import jakarta.validation.Valid;
@@ -30,6 +31,11 @@ public class ReviewController {
     @GetMapping("/today")
     public List<PhraseResponse> today() {
         return reviewService.today(currentUser.require().getId());
+    }
+
+    @PostMapping("/session")
+    public List<PhraseResponse> session(@RequestBody ReviewSessionRequest request) {
+        return reviewService.session(currentUser.require().getId(), request);
     }
 
     @PostMapping("/{phraseId}/answer")

@@ -1,8 +1,10 @@
 package com.phraseloop;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,10 +18,13 @@ import com.phraseloop.repository.UserRepository;
 import com.phraseloop.support.IntegrationTestBase;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.HashSet;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MvcResult;
 
 class ReviewIntegrationTest extends IntegrationTestBase {
@@ -55,17 +60,6 @@ class ReviewIntegrationTest extends IntegrationTestBase {
         assertThat(history.isRemembered()).isTrue();
         assertThat(history.getReviewedAt()).isNotNull();
         assertThat(history.getNextReviewDate()).isEqualTo(today.plusDays(3));
-
-        mockMvc.perform(post("/api/reviews/" + phraseId + "/answer")
-                        .with(csrf())
-                        .session(session)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"remembered\":true}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("REVIEW_NOT_DUE"));
-
-        phrase.applySchedule(phrase.getIntervalStage(), today);
-        phraseRepository.saveAndFlush(phrase);
 
         mockMvc.perform(post("/api/reviews/" + phraseId + "/answer")
                         .with(csrf())
@@ -166,17 +160,138 @@ class ReviewIntegrationTest extends IntegrationTestBase {
         assertThat(reviewHistoryRepository.findReviewedAtByUserId(user.getId())).hasSize(2);
     }
 
+    @Test
+    void sessionDrawsSelectedCategoriesWithoutDuplicates() throws Exception {
+        MockHttpSession session = register("session@example.com");
+        createPhrase(session, "good morning", "おはよう", "日常会話");
+        createPhrase(session, "thank you", "ありがとう", "日常会話");
+        createPhrase(session, "excuse me", "すみません", "日常会話");
+        createPhrase(session, "attend a meeting", "会議に参加する", "仕事");
+        createPhrase(session, "hello", "こんにちは", null);
+
+        mockMvc.perform(get("/api/phrases/categories").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].name").value("仕事"))
+                .andExpect(jsonPath("$[0].phraseCount").value(1))
+                .andExpect(jsonPath("$[1].name").value("日常会話"))
+                .andExpect(jsonPath("$[1].phraseCount").value(3))
+                .andExpect(jsonPath("$[2].name").value(nullValue()))
+                .andExpect(jsonPath("$[2].phraseCount").value(1));
+
+        MvcResult daily = mockMvc.perform(post("/api/reviews/session")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"all":false,"categories":["日常会話"],"includeUncategorized":false,"questionCount":10}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andReturn();
+        List<String> categories = com.jayway.jsonpath.JsonPath.read(daily.getResponse().getContentAsString(), "$[*].category");
+        List<Integer> ids = com.jayway.jsonpath.JsonPath.read(daily.getResponse().getContentAsString(), "$[*].id");
+        assertThat(categories).containsOnly("日常会話");
+        assertThat(new HashSet<>(ids)).hasSize(3);
+
+        mockMvc.perform(post("/api/reviews/session")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"all":false,"categories":[],"includeUncategorized":true,"questionCount":20}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].japaneseText").value("こんにちは"));
+
+        for (int extra = 0; extra < 6; extra++) {
+            createPhrase(session, "extra " + extra, "追加" + extra, "仕事");
+        }
+        MvcResult limited = mockMvc.perform(post("/api/reviews/session")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"all":true,"categories":[],"includeUncategorized":false,"questionCount":10}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(10))
+                .andReturn();
+        List<Integer> limitedIds = com.jayway.jsonpath.JsonPath.read(limited.getResponse().getContentAsString(), "$[*].id");
+        assertThat(new HashSet<>(limitedIds)).hasSize(10);
+
+        mockMvc.perform(multipart("/api/phrases/import/preview")
+                        .file(csv("""
+                                japanese,english,category
+                                おはよう,Good morning,日常会話
+                                ありがとう,Thank you,
+                                すみません,Excuse me,   
+                                ,See you,
+                                """))
+                        .with(csrf())
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.savedCount").value(0))
+                .andExpect(jsonPath("$.rows[0].category").value("日常会話"))
+                .andExpect(jsonPath("$.rows[1].category").value("未分類"))
+                .andExpect(jsonPath("$.rows[1].error").value(nullValue()))
+                .andExpect(jsonPath("$.rows[2].category").value("未分類"))
+                .andExpect(jsonPath("$.rows[3].error").value("日本語が空欄です"));
+
+        mockMvc.perform(get("/api/phrases").session(session)).andExpect(jsonPath("$.length()").value(11));
+
+        mockMvc.perform(multipart("/api/phrases/import")
+                        .file(csv("""
+                                japanese,english,category
+                                ,See you,
+                                """))
+                        .with(csrf())
+                        .session(session))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/phrases").session(session)).andExpect(jsonPath("$.length()").value(11));
+
+        mockMvc.perform(get("/api/phrases").session(session).param("category", "日常会話").param("uncategorized", "true"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(multipart("/api/phrases/import")
+                        .file(csv("""
+                                japanese,english,category
+                                おはよう,Good morning,日常会話
+                                ありがとう,Thank you,
+                                すみません,Excuse me,   
+                                """))
+                        .with(csrf())
+                        .session(session))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.savedCount").value(3));
+
+        mockMvc.perform(get("/api/phrases").session(session).param("category", "日常会話"))
+                .andExpect(jsonPath("$.length()").value(4));
+        mockMvc.perform(get("/api/phrases").session(session).param("uncategorized", "true"))
+                .andExpect(jsonPath("$.length()").value(3));
+    }
+
     private long createPhrase(MockHttpSession session, String english, String japanese) throws Exception {
+        return createPhrase(session, english, japanese, null);
+    }
+
+    private long createPhrase(MockHttpSession session, String english, String japanese, String category) throws Exception {
+        String categoryJson = category == null ? "null" : "\"" + category + "\"";
         MvcResult created = mockMvc.perform(post("/api/phrases")
                         .with(csrf())
                         .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"englishText":"%s","japaneseText":"%s"}
-                                """.formatted(english, japanese)))
+                                {"englishText":"%s","japaneseText":"%s","category":%s}
+                                """.formatted(english, japanese, categoryJson)))
                 .andExpect(status().isCreated())
                 .andReturn();
         Number id = com.jayway.jsonpath.JsonPath.read(created.getResponse().getContentAsString(), "$.id");
         return id.longValue();
+    }
+
+    private static MockMultipartFile csv(String content) {
+        return new MockMultipartFile("file", "phrases.csv", "text/csv", content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 }
