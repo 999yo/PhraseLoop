@@ -319,6 +319,8 @@ button:disabled { opacity: 0.6; cursor: wait; }
   gap: 16px;
 }
 
+.finish-actions { justify-content: center; margin-top: 20px; }
+
 .progress { font-size: 18px; color: #5e675f; margin: 0; }
 
 .category { color: #5e675f; margin: 0; }

@@ -198,14 +198,31 @@ export function ReviewPage() {
   }
   if (done) {
     return (
-      <div className="status-block review-finish">
-        <p className="progress">
-          {phrases.length} / {phrases.length}
-        </p>
-        <h1>今日の {phrases.length} 問が終わりました。</h1>
-        <Link className="primary button-link" to="/">
-          ダッシュボードへ
-        </Link>
+      <div className="status-block">
+        <div className="review-finish">
+          <p className="progress">
+            {phrases.length} / {phrases.length}
+          </p>
+          <h1>今日の {phrases.length} 問が終わりました。</h1>
+        </div>
+        <div className="row-actions finish-actions">
+          <Link className="primary button-link" to="/">
+            ダッシュボードへ
+          </Link>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setPhrases(null);
+              setDone(false);
+              setIndex(0);
+              setDraft("");
+              setPhase("answer");
+            }}
+          >
+            設定に戻る
+          </button>
+        </div>
       </div>
     );
   }
