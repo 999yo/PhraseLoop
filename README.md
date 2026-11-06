@@ -1,5 +1,6 @@
 # PhraseLoop
 公開サイト：https://phraseloop.onrender.com/login
+
 ※ 無料プランのため、一定時間未使用の場合、起動に時間がかかることがあります。
 
 日本語訳を見て英語フレーズを思い出すための復習アプリです。
